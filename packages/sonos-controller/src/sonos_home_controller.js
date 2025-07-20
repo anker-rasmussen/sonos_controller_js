@@ -1,9 +1,8 @@
 // sonos_home_controller.js
 //
 // This script runs a lightweight Node.js/Express web server.
-// It listens for a webhook to detect when you arrive home.
-// After a specified delay, it uses the Sonos Control API to play a
-// playlist from your "My Sonos" favorites on a designated speaker.
+// It listens for dynamic webhooks to play specific favorites from "My Sonos".
+// Example Request: POST /play/upbeat-playlist -> Plays the "upbeat-playlist" favorite.
 
 require('dotenv').config();
 
@@ -14,20 +13,18 @@ const fs = require('fs');
 const path = require('path');
 
 // --- CONFIGURATION (from .env file) ---
-// NOTE: You must now use FAVORITE_PLAYLIST_NAME instead of PLAYLIST_URI
 const {
     SONOS_CLIENT_ID,
     SONOS_CLIENT_SECRET,
     SONOS_REDIRECT_URI,
     TARGET_DEVICE_NAME,
-    FAVORITE_PLAYLIST_NAME, 
-    ARRIVAL_DELAY_SECONDS,
+    ARRIVAL_DELAY_SECONDS, // A general delay applied to all requests
     SERVER_PORT
 } = process.env;
 
 // Basic validation to ensure required env vars are set
-if (!SONOS_CLIENT_ID || !SONOS_CLIENT_SECRET || !TARGET_DEVICE_NAME || !FAVORITE_PLAYLIST_NAME) {
-    console.error("FATAL ERROR: SONOS_CLIENT_ID, SONOS_CLIENT_SECRET, TARGET_DEVICE_NAME, and FAVORITE_PLAYLIST_NAME must be set in the .env file.");
+if (!SONOS_CLIENT_ID || !SONOS_CLIENT_SECRET || !TARGET_DEVICE_NAME) {
+    console.error("FATAL ERROR: SONOS_CLIENT_ID, SONOS_CLIENT_SECRET, and TARGET_DEVICE_NAME must be set in the .env file.");
     process.exit(1);
 }
 
@@ -35,7 +32,8 @@ if (!SONOS_CLIENT_ID || !SONOS_CLIENT_SECRET || !TARGET_DEVICE_NAME || !FAVORITE
 const TOKEN_PATH = path.join(__dirname, '.sonos_tokens.json');
 const AUTH_PORT = 8888;
 const WEBHOOK_PORT = SERVER_PORT || 5001;
-const DELAY_MS = ARRIVAL_DELAY_SECONDS;
+// Correctly parse the delay from seconds to milliseconds, with a default of 0.
+const DELAY_MS = (parseInt(ARRIVAL_DELAY_SECONDS, 10) || 0) * 1000;
 const REDIRECT_URI = SONOS_REDIRECT_URI || `http://localhost:${AUTH_PORT}/callback`;
 
 const app = express();
@@ -78,7 +76,6 @@ function loadTokens() {
         return tokens;
     } catch (err) {
         console.error("Error loading or parsing token file. It might be corrupted.", err);
-        // Attempt to delete the corrupted file to allow for a clean start.
         try {
             fs.unlinkSync(TOKEN_PATH);
         } catch (deleteErr) {
@@ -94,7 +91,7 @@ function loadTokens() {
  */
 async function refreshToken() {
     console.log('Refreshing Sonos token...');
-    const currentTokens = loadTokens(); // Use loadTokens to ensure we have valid tokens to start with
+    const currentTokens = loadTokens();
     if (!currentTokens || !currentTokens.refresh_token) {
         console.error("No valid refresh token found. Cannot refresh. Please re-authenticate.");
         return false;
@@ -117,7 +114,6 @@ async function refreshToken() {
         return true;
     } catch (err) {
         console.error('Could not refresh Sonos token. You may need to re-authenticate.', err.response ? err.response.data : err.message);
-        // If refresh fails (e.g., token revoked), delete the old token file to force re-auth.
         if (err.response && (err.response.status === 400 || err.response.status === 401)) {
             fs.unlinkSync(TOKEN_PATH);
             console.log("Invalid token file deleted.");
@@ -127,15 +123,20 @@ async function refreshToken() {
 }
 
 /**
- * The core logic: wait, find the speaker, find the favorite, and play music.
+ * The core logic: waits for a delay, finds the speaker, finds the specified favorite, and plays it.
+ * @param {string} favoriteName - The name of the favorite playlist to play.
  */
-async function playMusicAfterDelay() {
-    console.log(`Arrival detected. Waiting for ${DELAY_MS / 1000} seconds...`);
+async function playFavoriteAfterDelay(favoriteName) {
+    if (!favoriteName) {
+        console.error("Playback error: No favorite name was provided.");
+        return;
+    }
+    
+    console.log(`Request received to play '${favoriteName}'. Waiting for ${DELAY_MS / 1000} seconds...`);
     await new Promise(resolve => setTimeout(resolve, DELAY_MS));
-    console.log("Wait finished. Attempting to play music on Sonos.");
+    console.log(`Wait finished. Attempting to play '${favoriteName}' on Sonos.`);
 
     try {
-        // Refreshing the token right before we use it is a robust pattern.
         const refreshed = await refreshToken();
         if (!refreshed) {
             console.error("Aborting playback due to token refresh failure.");
@@ -163,8 +164,6 @@ async function playMusicAfterDelay() {
         const groupId = targetGroup.id;
         console.log(`Found target group '${targetGroup.name}' with ID: ${groupId}`);
 
-        // --- REFACTORED LOGIC: PLAY FROM "MY SONOS" FAVORITES ---
-
         console.log("Fetching 'My Sonos' favorites...");
         const { data: { items: favorites } } = await sonosApi.get(`/households/${householdId}/favorites`);
         
@@ -173,10 +172,11 @@ async function playMusicAfterDelay() {
             return;
         }
 
-        const targetFavorite = favorites.find(fav => fav.name.toLowerCase() === FAVORITE_PLAYLIST_NAME.toLowerCase());
+        // Find the favorite matching the name from the URL parameter
+        const targetFavorite = favorites.find(fav => fav.name.toLowerCase() === favoriteName.toLowerCase());
 
         if (!targetFavorite) {
-            console.error(`Could not find a favorite named '${FAVORITE_PLAYLIST_NAME}'.`);
+            console.error(`Could not find a favorite named '${favoriteName}'.`);
             console.log("Available favorites:", favorites.map(fav => fav.name));
             return;
         }
@@ -184,14 +184,13 @@ async function playMusicAfterDelay() {
         console.log(`Found target favorite '${targetFavorite.name}' with ID: ${favoriteId}`);
 
         console.log("Sending LOAD and PLAY command for favorite...");
-        // This is the correct API call to play an item from "My Sonos".
         await sonosApi.post(`/groups/${groupId}/favorites`, {
             favoriteId: favoriteId,
             playOnCompletion: true,
             action: "REPLACE" // Replaces the current queue with the favorite.
         });
         
-        console.log(`Successfully requested playback of favorite '${FAVORITE_PLAYLIST_NAME}' on '${TARGET_DEVICE_NAME}'.`);
+        console.log(`Successfully requested playback of favorite '${favoriteName}' on '${TARGET_DEVICE_NAME}'.`);
 
     } catch (err) {
         const errorData = err.response ? err.response.data : err.message;
@@ -202,7 +201,7 @@ async function playMusicAfterDelay() {
 // --- WEB SERVER & AUTHENTICATION FLOW ---
 
 /**
- * Handles the OAuth callback from Sonos, exchanges the code for tokens.
+ * Handles the OAuth callback from Sonos.
  */
 const handleSonosCallback = async (req, res) => {
     const code = req.query.code;
@@ -231,7 +230,6 @@ const handleSonosCallback = async (req, res) => {
         res.send('<h1>Success!</h1><p>Sonos authentication complete. The server is ready. You can close this window.</p><script>setTimeout(() => window.close(), 2000);</script>');
         console.log('Sonos authentication successful! Restarting server in operational mode...');
         
-        // Exit gracefully so the process manager (like PM2) can restart it in webhook mode.
         setTimeout(() => process.exit(0), 1000); 
     } catch (err) {
         console.error("Error exchanging code for Sonos tokens:", err.response ? err.response.data : err.message);
@@ -260,21 +258,25 @@ async function main() {
         });
     } else {
         // --- NORMAL WEBHOOK MODE ---
-        console.log('Sonos tokens found. Starting webhook server.');
+        console.log('Sonos tokens found. Starting dynamic webhook server.');
         
-        // Schedule a token refresh well before it expires.
         const initialTokens = loadTokens();
         const expiresIn = (initialTokens.expires_in || 3600) * 1000;
-        setInterval(refreshToken, expiresIn * 0.9); // Refresh at 90% of expiry time.
+        setInterval(refreshToken, expiresIn * 0.9);
 
-        app.post('/webhook/arrive', (req, res) => {
-            console.log("Received an arrival webhook trigger.");
-            playMusicAfterDelay(); // This is asynchronous, no need to await it here.
-            res.status(202).send("Webhook accepted. Processing playback request.");
+        // NEW: Dynamic route to handle different playlists
+        app.post('/play/:favoriteName', (req, res) => {
+            const favoriteName = req.params.favoriteName;
+            console.log(`Received webhook trigger for favorite: ${favoriteName}`);
+            // Replace spaces, underscores, etc. from URL encoding if necessary
+            const cleanedName = favoriteName.replace(/%20/g, ' ').replace(/_/g, ' ');
+            playFavoriteAfterDelay(cleanedName);
+            res.status(202).send(`Webhook for '${cleanedName}' accepted. Processing playback request.`);
         });
 
         app.listen(WEBHOOK_PORT, '0.0.0.0', () => {
-            console.log(`Server listening on http://0.0.0.0:${WEBHOOK_PORT} for webhooks.`);
+            console.log(`Server listening on http://0.0.0.0:${WEBHOOK_PORT} for dynamic webhooks.`);
+            console.log(`Example Usage: POST http://<YOUR_PI_IP>:${WEBHOOK_PORT}/play/Your_Favorite_Name`);
         });
     }
 }
