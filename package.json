@@ -1,0 +1,26 @@
+{
+  "name": "sonos_controller_js",
+  "version": "1.0.0",
+  "description": "Basic node application to use location webhooks to run on RPI and play music upon arriving home via the Sonos API.",
+  "main": "sonos_home_controller.js",
+  "scripts": {
+    "start": "node sonos_home_controller.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "sonos",
+    "spotify",
+    "raspberry-pi",
+    "automation",
+    "home-automation"
+  ],
+  "author": "anker-rasmussen",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "open": "^8.4.2",
+    "sonos": "^1.5.1"
+  }
+}
