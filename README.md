@@ -101,23 +101,67 @@ Using your phone's Wi-Fi connection is the most reliable trigger.
 
     Turn OFF "Ask Before Running."
 
-4. Deployment with PM2
+## 4. Deployment with Systemd
 
-To make the script run continuously, we use PM2.
+To ensure the Sonos Home Controller runs continuously and automatically restarts if it crashes or after a reboot, you can configure it as a systemd service on your Raspberry Pi (or any Linux system using systemd).
 
-    Install PM2 globally.
+1.  **Create the systemd Service File**:
+    Open a new service file in `/etc/systemd/system/`. We'll name it `sonos-controller.service`.
 
-    sudo npm install pm2 -g
+    ```bash
+    sudo nano /etc/systemd/system/sonos-controller.service
+    ```
 
-    Start the controller with PM2.
+2.  **Add Service Configuration**:
+    Paste the following content into the file. **Ensure that `User`, `Group`, `WorkingDirectory`, and `ExecStart` reflect your actual setup.** The `WorkingDirectory` should be the root of your `sonos_controller_js` project, where your `.env` file is located. If you followed the example setup, this would be `/home/pi/sonos_controller`.
 
-    # From your project directory (/home/pi/sonos_controller)
-    pm2 start sonos_home_controller.js --name sonos-controller
+    ```ini
+    [Unit]
+    Description=Sonos Home Controller Service
+    After=network.target
 
-    Set up PM2 to start on boot.
+    [Service]
+    User=pi # Or your username, e.g., broadcom
+    Group=pi # Or your group, e.g., broadcom
+    # Set this to the root directory of your project (where .env is)
+    WorkingDirectory=/home/pi/sonos_controller
+    # Adjust the path to your main script relative to the WorkingDirectory
+    ExecStart=/usr/bin/node sonos_home_controller.js
+    Restart=always
+    StandardOutput=syslog
+    StandardError=syslog
+    SyslogIdentifier=sonos-controller
 
-    pm2 startup
-    # PM2 will give you a command to run. Copy and execute it.
-    pm2 save
+    [Install]
+    WantedBy=multi-user.target
+    ```
 
-Your controller is now running persistently. You can check its status with pm2 status and view logs with pm2 logs sonos-controller.
+    Save and exit the file (`Ctrl + X`, then `Y`, then `Enter`).
+
+3.  **Reload Systemd and Enable the Service**:
+    After creating or modifying the service file, inform systemd about the new configuration and enable the service to start automatically on boot.
+
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable sonos-controller.service
+    ```
+
+4.  **Start the Service**:
+    Start the Sonos controller service immediately.
+
+    ```bash
+    sudo systemctl start sonos-controller.service
+    ```
+
+5.  **Verify Service Status and Logs**:
+    Check if the service is running and view its logs for any issues or confirmation messages.
+
+    ```bash
+    systemctl status sonos-controller.service
+    # To view real-time logs:
+    journalctl -u sonos-controller.service -f
+    ```
+    You should see `Active: active (running)` and messages indicating the server is listening, confirming that the `.env` file was loaded correctly.
+
+
+
