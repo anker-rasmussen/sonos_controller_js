@@ -1,4 +1,7 @@
-# Dynamic Sonos Favorite Player
+# Dynamic Sonos Player Via api/webhooks....
+### What?? TLDR:
+### RESTful api style, send a POST request http://ip-address-of-server:5001/play/{playlist_name}
+### See below for steps to setup. If you do not have a domain, use [ngrok](https://ngrok.com/)
 
 This Node.js application runs on a Raspberry Pi (or any persistent server) and provides a simple, local API to play any of your "My Sonos" favorites on a designated speaker.
 
