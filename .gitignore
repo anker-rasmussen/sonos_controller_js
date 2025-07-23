@@ -148,3 +148,4 @@ dist
 
 # tokens...
 packages/sonos-controller/src/.sonos_tokens.json
+packages/sonos-controller/src/.spotify_tokens.json

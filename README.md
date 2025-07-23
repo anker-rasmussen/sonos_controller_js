@@ -11,6 +11,7 @@ This version uses the official Sonos Control API, which is more reliable than th
 
 ## Features
 
+* **Spotify Integration**: Automatically pauses any currently playing Spotify track before playing a Sonos favorite. This is necessary because the Sonos speaker will not play if Spotify is currently playing from it.
 * **Dynamic Playback**: Play any of your "My Sonos" favorites by including its name in the request URL (e.g., `/play/Upbeat_Morning`).
 * **Direct Sonos Control**: Uses the official Sonos API for robust and reliable playback.
 * **Automation Ready**: Designed to be triggered by any webhook-capable service for endless automation possibilities.
@@ -24,7 +25,7 @@ This version uses the official Sonos Control API, which is more reliable than th
 * A Raspberry Pi or other always-on computer running a Linux distribution with systemd.
 * Node.js (v16 or higher).
 * A Sonos system.
-* A Spotify Premium account (or other premium music service) to save and play playlists/stations as favorites.
+* A Spotify Premium account.
 
 ## Setup Instructions
 
@@ -36,12 +37,20 @@ First, you need to register an application with Sonos to get API credentials.
 2.  Once logged in, go to "Control Integrations" and click "Create a new control integration".
 3.  Fill out the required fields. For "User-facing name," you can enter something like "Home Automation Controller."
 4.  Under "Control & Authentication," configure the following:
-    * **Redirect URIs**: Add `http://localhost:8888/callback`. This must be exact.
+    * **Redirect URIs**: Add `http://localhost:8888/sonos_callback`. This must be exact.
     * **Event Callback URL**: You can leave this blank.
 5.  Click "Save."
 6.  You will now see your **Key (Client ID)** and **Secret (Client Secret)** on the integration's page. You will need these for your `.env` file.
 
-### 2. Project Setup on Raspberry Pi
+### 2. Spotify Developer Account & App Creation
+
+1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and log in.
+2. Click "Create an App".
+3. Give your app a name and description.
+4. Under "Redirect URIs", add `http://localhost:8888/spotify_callback`.
+5. You will now see your **Client ID** and **Client Secret**. You will need these for your `.env` file.
+
+### 3. Project Setup on Raspberry Pi
 
 1.  Clone or download the project files into a directory on your Pi.
     ```bash
@@ -54,7 +63,7 @@ First, you need to register an application with Sonos to get API credentials.
     ```bash
     cp .env.example .env
     ```
-3.  Edit the `.env` file and fill in your details. You must provide your `SONOS_CLIENT_ID`, `SONOS_CLIENT_SECRET`, and `TARGET_DEVICE_NAME`.
+3.  Edit the `.env` file and fill in your details. You must provide your `SONOS_CLIENT_ID`, `SONOS_CLIENT_SECRET`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `TARGET_DEVICE_NAME`.
     ```bash
     nano .env
     ```
@@ -62,16 +71,16 @@ First, you need to register an application with Sonos to get API credentials.
     ```bash
     npm install express dotenv open axios
     ```
-5.  **First-Time Authentication**: Run the script once to authorize it with your Sonos household.
+5.  **First-Time Authentication**: Run the script once to authorize it with your Sonos and Spotify households.
     ```bash
     node sonos_home_controller.js
     ```
     * A URL will be printed in the console. A browser window should open automatically.
     * If not, copy the URL and paste it into a browser.
-    * Log in to your Sonos account and grant the permissions.
-    * You'll be redirected to a "Success!" page. The script will save a `.sonos_tokens.json` file and exit. Your app is now authenticated.
+    * Log in to your Sonos and Spotify accounts and grant the permissions.
+    * You'll be redirected to a "Success!" page. The script will save `.sonos_tokens.json` and `.spotify_tokens.json` files and exit. Your app is now authenticated.
 
-### 3. Automation Setup (Apple Shortcuts Example)
+### 4. Automation Setup (Apple Shortcuts Example)
 
 Using your phone's Wi-Fi connection is a reliable trigger for a "home arrival" automation. You can create multiple automations for different scenarios.
 
@@ -90,7 +99,7 @@ Using your phone's Wi-Fi connection is a reliable trigger for a "home arrival" a
 * **Home Arrival:** Triggered by Wi-Fi, URL: `http://192.168.1.50:5001/play/Classical%20in%20the%20Background`
 * **Morning Playlist:** Triggered by "Time of Day" (e.g., 8 AM), URL: `http://192.168.1.50:5001/play/Upbeat%20Morning`
 
-### 4. Deployment with Systemd
+### 5. Deployment with Systemd
 
 To ensure the Sonos Home Controller runs continuously and automatically restarts if it crashes or after a reboot, you can configure it as a systemd service on your Raspberry Pi (or any Linux system using systemd).
 
