@@ -119,7 +119,10 @@ module.exports = (dependencies) => {
           refresh_token: currentTokens.refresh_token,
         }),
         {
-          headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
         },
       );
 
@@ -159,7 +162,10 @@ module.exports = (dependencies) => {
           refresh_token: currentTokens.refresh_token,
         }),
         {
-          headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
         },
       );
 
@@ -191,7 +197,10 @@ module.exports = (dependencies) => {
       if (err.response && err.response.status === 404) {
         console.log('No active Spotify device found to pause.');
       } else {
-        console.error('An error occurred during Spotify pause attempt:', JSON.stringify(errorData, null, 2));
+        console.error(
+          'An error occurred during Spotify pause attempt:',
+          JSON.stringify(errorData, null, 2),
+        );
       }
     }
   }
@@ -207,7 +216,9 @@ module.exports = (dependencies) => {
     );
 
     await pauseSpotify();
-    await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+    await new Promise((resolve) => {
+      setTimeout(resolve, DELAY_MS);
+    });
 
     console.log(`Wait finished. Attempting to play '${favoriteName}' on Sonos.`);
 
@@ -233,7 +244,9 @@ module.exports = (dependencies) => {
       const {
         data: { groups },
       } = await sonosApi.get(`/households/${householdId}/groups`);
-      const targetGroup = groups.find((g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase());
+      const targetGroup = groups.find(
+        (g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase(),
+      );
 
       if (!targetGroup) {
         console.warn(`Could not find a Sonos speaker or group named '${TARGET_DEVICE_NAME}'.`);
@@ -259,7 +272,9 @@ module.exports = (dependencies) => {
         return;
       }
 
-      const targetFavorite = favorites.find((fav) => fav.name.toLowerCase() === favoriteName.toLowerCase());
+      const targetFavorite = favorites.find(
+        (fav) => fav.name.toLowerCase() === favoriteName.toLowerCase(),
+      );
 
       if (!targetFavorite) {
         console.error(`Could not find a favorite named '${favoriteName}'.`);
@@ -279,10 +294,15 @@ module.exports = (dependencies) => {
         action: 'REPLACE',
       });
 
-      console.log(`Successfully requested playback of favorite '${favoriteName}' on '${TARGET_DEVICE_NAME}'.`);
+      console.log(
+        `Successfully requested playback of favorite '${favoriteName}' on '${TARGET_DEVICE_NAME}'.`,
+      );
     } catch (err) {
       const errorData = err.response ? err.response.data : err.message;
-      console.error('An error occurred during Sonos playback attempt:', JSON.stringify(errorData, null, 2));
+      console.error(
+        'An error occurred during Sonos playback attempt:',
+        JSON.stringify(errorData, null, 2),
+      );
     }
   }
 
@@ -315,7 +335,9 @@ module.exports = (dependencies) => {
       const {
         data: { groups },
       } = await sonosApi.get(`/households/${householdId}/groups`);
-      const targetGroup = groups.find((g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase());
+      const targetGroup = groups.find(
+        (g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase(),
+      );
 
       if (!targetGroup) {
         console.warn(`Could not find a Sonos speaker or group named '${TARGET_DEVICE_NAME}'.`);
@@ -334,14 +356,19 @@ module.exports = (dependencies) => {
       console.log(`Successfully requested switch to Line-In on '${TARGET_DEVICE_NAME}'.`);
     } catch (err) {
       const errorData = err.response ? err.response.data : err.message;
-      console.error('An error occurred during the switch to Line-In attempt:', JSON.stringify(errorData, null, 2));
+      console.error(
+        'An error occurred during the switch to Line-In attempt:',
+        JSON.stringify(errorData, null, 2),
+      );
     }
   }
 
   const handleSonosCallback = async (req, res) => {
     const { code } = req.query;
     if (!code) {
-      return res.status(400).send('<h1>Error</h1><p>No authorization code provided in the Sonos callback.</p>');
+      return res
+        .status(400)
+        .send('<h1>Error</h1><p>No authorization code provided in the Sonos callback.</p>');
     }
 
     console.log('Received Sonos authorization code, exchanging for tokens...');
@@ -370,16 +397,24 @@ module.exports = (dependencies) => {
         '<h1>Success!</h1><p>Sonos authentication complete. You can close this window.</p><script>setTimeout(() => window.close(), 2000);</script>',
       );
       console.log('Sonos authentication successful! Please restart the server.');
+      return res;
     } catch (err) {
-      console.error('Error exchanging code for Sonos tokens:', err.response ? err.response.data : err.message);
-      res.status(500).send('<h1>Error</h1><p>Could not get Sonos tokens. Check the console for details.</p>');
+      console.error(
+        'Error exchanging code for Sonos tokens:',
+        err.response ? err.response.data : err.message,
+      );
+      return res
+        .status(500)
+        .send('<h1>Error</h1><p>Could not get Sonos tokens. Check the console for details.</p>');
     }
   };
 
   const handleSpotifyCallback = async (req, res) => {
     const { code } = req.query;
     if (!code) {
-      return res.status(400).send('<h1>Error</h1><p>No authorization code provided in the Spotify callback.</p>');
+      return res
+        .status(400)
+        .send('<h1>Error</h1><p>No authorization code provided in the Spotify callback.</p>');
     }
 
     console.log('Received Spotify authorization code, exchanging for tokens...');
@@ -408,9 +443,15 @@ module.exports = (dependencies) => {
         '<h1>Success!</h1><p>Spotify authentication complete. You can close this window.</p><script>setTimeout(() => window.close(), 2000);</script>',
       );
       console.log('Spotify authentication successful! Please restart the server.');
+      return res;
     } catch (err) {
-      console.error('Error exchanging code for Spotify tokens:', err.response ? err.response.data : err.message);
-      res.status(500).send('<h1>Error</h1><p>Could not get Spotify tokens. Check the console for details.</p>');
+      console.error(
+        'Error exchanging code for Spotify tokens:',
+        err.response ? err.response.data : err.message,
+      );
+      return res
+        .status(500)
+        .send('<h1>Error</h1><p>Could not get Spotify tokens. Check the console for details.</p>');
     }
   };
 
@@ -426,6 +467,8 @@ module.exports = (dependencies) => {
       authApp.listen(AUTH_PORT, () => {
         console.log(`Authentication server listening on http://localhost:${AUTH_PORT}`);
         if (!sonosTokens) {
+          // prettier-ignore
+          // eslint-disable-next-line max-len
           const sonosAuthUrl = `https://api.sonos.com/login/v3/oauth?client_id=${SONOS_CLIENT_ID}&response_type=code&state=sonos-auth&scope=playback-control-all&redirect_uri=${encodeURIComponent(SONOS_REDIRECT_URI_FULL)}`;
           console.log('--- FIRST-TIME SONOS SETUP ---');
           console.log('Please visit this URL to authorize with Sonos:');
@@ -433,6 +476,8 @@ module.exports = (dependencies) => {
           open(sonosAuthUrl);
         }
         if (!spotifyTokens) {
+          // prettier-ignore
+          // eslint-disable-next-line max-len
           const spotifyAuthUrl = `https://accounts.spotify.com/authorize?client_id=${SPOTIFY_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI_FULL)}&scope=user-modify-playback-state`;
           console.log('--- FIRST-TIME SPOTIFY SETUP ---');
           console.log('Please visit this URL to authorize with Spotify:');
@@ -454,6 +499,8 @@ module.exports = (dependencies) => {
         console.log(`Received webhook trigger for favorite: ${favoriteName}`);
         const cleanedName = favoriteName.replace(/%20/g, ' ').replace(/_/g, ' ');
         playFavoriteAfterDelay(cleanedName);
+        // prettier-ignore
+        // eslint-disable-next-line max-len
         res.status(202).send(`Webhook for '${cleanedName}' accepted. Processing playback request.`);
       });
 

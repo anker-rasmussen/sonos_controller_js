@@ -1,6 +1,9 @@
 # Dynamic Sonos Player Via api/webhooks....
+
 ### What?? TLDR:
+
 ### RESTful api style, send a POST request http://ip-address-of-server:5001/play/{playlist_name}
+
 ### See below for steps to setup. If you do not have a domain, use [ngrok](https://ngrok.com/)
 
 This Node.js application runs on a Raspberry Pi (or any persistent server) and provides a simple, local API to play any of your "My Sonos" favorites on a designated speaker.
@@ -11,21 +14,21 @@ This version uses the official Sonos Control API, which is more reliable than th
 
 ## Features
 
-* **Spotify Integration**: Automatically pauses any currently playing Spotify track before playing a Sonos favorite. This is necessary because the Sonos speaker will not play if Spotify is currently playing from it.
-* **Dynamic Playback**: Play any of your "My Sonos" favorites by including its name in the request URL (e.g., `/play/Upbeat_Morning`).
-* **Direct Sonos Control**: Uses the official Sonos API for robust and reliable playback.
-* **Automation Ready**: Designed to be triggered by any webhook-capable service for endless automation possibilities.
-* **Configurable Delay**: A built-in global delay can be set to prevent music from starting instantly.
-* **Speaker Targeting**: You can specify the exact Sonos speaker or group name (e.g., "Living Room").
-* **Persistent & Robust**: Designed to run continuously as a systemd service, with automatic token refreshing.
-* **Secure**: Keeps your secret credentials out of the code using a `.env` file.
+- **Spotify Integration**: Automatically pauses any currently playing Spotify track before playing a Sonos favorite. This is necessary because the Sonos speaker will not play if Spotify is currently playing from it.
+- **Dynamic Playback**: Play any of your "My Sonos" favorites by including its name in the request URL (e.g., `/play/Upbeat_Morning`).
+- **Direct Sonos Control**: Uses the official Sonos API for robust and reliable playback.
+- **Automation Ready**: Designed to be triggered by any webhook-capable service for endless automation possibilities.
+- **Configurable Delay**: A built-in global delay can be set to prevent music from starting instantly.
+- **Speaker Targeting**: You can specify the exact Sonos speaker or group name (e.g., "Living Room").
+- **Persistent & Robust**: Designed to run continuously as a systemd service, with automatic token refreshing.
+- **Secure**: Keeps your secret credentials out of the code using a `.env` file.
 
 ## Requirements
 
-* A Raspberry Pi or other always-on computer running a Linux distribution with systemd.
-* Node.js (v16 or higher).
-* A Sonos system.
-* A Spotify Premium account.
+- A Raspberry Pi or other always-on computer running a Linux distribution with systemd.
+- Node.js (v16 or higher).
+- A Sonos system.
+- A Spotify Premium account.
 
 ## Setup Instructions
 
@@ -37,8 +40,8 @@ First, you need to register an application with Sonos to get API credentials.
 2.  Once logged in, go to "Control Integrations" and click "Create a new control integration".
 3.  Fill out the required fields. For "User-facing name," you can enter something like "Home Automation Controller."
 4.  Under "Control & Authentication," configure the following:
-    * **Redirect URIs**: Add `http://localhost:8888/sonos_callback`. This must be exact.
-    * **Event Callback URL**: You can leave this blank.
+    - **Redirect URIs**: Add `http://localhost:8888/sonos_callback`. This must be exact.
+    - **Event Callback URL**: You can leave this blank.
 5.  Click "Save."
 6.  You will now see your **Key (Client ID)** and **Secret (Client Secret)** on the integration's page. You will need these for your `.env` file.
 
@@ -72,13 +75,15 @@ First, you need to register an application with Sonos to get API credentials.
     npm install express dotenv open axios
     ```
 5.  **First-Time Authentication**: Run the script once to authorize it with your Sonos and Spotify households.
+
     ```bash
     node sonos_home_controller.js
     ```
-    * A URL will be printed in the console. A browser window should open automatically.
-    * If not, copy the URL and paste it into a browser.
-    * Log in to your Sonos and Spotify accounts and grant the permissions.
-    * You'll be redirected to a "Success!" page. The script will save `.sonos_tokens.json` and `.spotify_tokens.json` files and exit. Your app is now authenticated.
+
+    - A URL will be printed in the console. A browser window should open automatically.
+    - If not, copy the URL and paste it into a browser.
+    - Log in to your Sonos and Spotify accounts and grant the permissions.
+    - You'll be redirected to a "Success!" page. The script will save `.sonos_tokens.json` and `.spotify_tokens.json` files and exit. Your app is now authenticated.
 
 ### 4. Automation Setup (Apple Shortcuts Example)
 
@@ -89,15 +94,16 @@ Using your phone's Wi-Fi connection is a reliable trigger for a "home arrival" a
 3.  Create a **New Personal Automation**. For a home arrival trigger, select "Wi-Fi" and choose your home network.
 4.  Add the action **"Get Contents of URL"**.
 5.  Set the URL to `http://<YOUR_PI_LOCAL_IP>:<PORT>/play/<YOUR_FAVORITE_NAME>`.
-    * Replace `<YOUR_PI_LOCAL_IP>` with your Pi's IP address (e.g., `192.168.1.50`).
-    * Replace `<PORT>` with the port from your `.env` file (e.g., `5001`).
-    * Replace `<YOUR_FAVORITE_NAME>` with the exact name of the favorite you want to play (e.g., `Classical%20in%20the%20Background`). Spaces should be URL-encoded as `%20`, but the Shortcuts app often handles this automatically.
+    - Replace `<YOUR_PI_LOCAL_IP>` with your Pi's IP address (e.g., `192.168.1.50`).
+    - Replace `<PORT>` with the port from your `.env` file (e.g., `5001`).
+    - Replace `<YOUR_FAVORITE_NAME>` with the exact name of the favorite you want to play (e.g., `Classical%20in%20the%20Background`). Spaces should be URL-encoded as `%20`, but the Shortcuts app often handles this automatically.
 6.  Expand the options and set the **Method** to **POST**.
 7.  Turn **OFF** "Ask Before Running."
 
 **Example Automations:**
-* **Home Arrival:** Triggered by Wi-Fi, URL: `http://192.168.1.50:5001/play/Classical%20in%20the%20Background`
-* **Morning Playlist:** Triggered by "Time of Day" (e.g., 8 AM), URL: `http://192.168.1.50:5001/play/Upbeat%20Morning`
+
+- **Home Arrival:** Triggered by Wi-Fi, URL: `http://192.168.1.50:5001/play/Classical%20in%20the%20Background`
+- **Morning Playlist:** Triggered by "Time of Day" (e.g., 8 AM), URL: `http://192.168.1.50:5001/play/Upbeat%20Morning`
 
 ### 5. Deployment with Systemd
 
@@ -159,5 +165,5 @@ To ensure the Sonos Home Controller runs continuously and automatically restarts
     # To view real-time logs:
     journalctl -u sonos-controller.service -f
     ```
-    You should see `Active: active (running)` and messages indicating the server is listening, confirming that the `.env` file was loaded correctly.
 
+    You should see `Active: active (running)` and messages indicating the server is listening, confirming that the `.env` file was loaded correctly.
