@@ -352,6 +352,7 @@ module.exports = (dependencies) => {
 
       console.log('Sending command to switch to Line-In...');
       await sonosApi.post(`/groups/${groupId}/playback/lineIn`);
+      await sonosApi.post(`/groups/${groupId}/playback/play`);
 
       console.log(`Successfully requested switch to Line-In on '${TARGET_DEVICE_NAME}'.`);
     } catch (err) {
