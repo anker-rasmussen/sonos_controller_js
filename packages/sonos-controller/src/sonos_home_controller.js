@@ -350,6 +350,9 @@ module.exports = (dependencies) => {
       const groupId = targetGroup.id;
       console.log(`Found target group '${targetGroup.name}' with ID: ${groupId}`);
 
+      console.log('Pausing current playback...');
+      await sonosApi.post(`/groups/${groupId}/playback/pause`);
+
       console.log('Sending command to switch to Line-In...');
       await sonosApi.post(`/groups/${groupId}/playback/lineIn`);
       await sonosApi.post(`/groups/${groupId}/playback/play`);
