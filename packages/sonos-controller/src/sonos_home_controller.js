@@ -33,6 +33,7 @@ module.exports = (dependencies) => {
   const SPOTIFY_REDIRECT_URI_FULL = SPOTIFY_REDIRECT_URI || `http://localhost:${AUTH_PORT}/spotify_callback`;
 
   const app = express();
+  app.use(express.json());
   const sonosApi = axios.create({ baseURL: 'https://api.ws.sonos.com/control/api/v1' });
   const spotifyApi = axios.create({ baseURL: 'https://api.spotify.com/v1' });
 
@@ -205,6 +206,65 @@ module.exports = (dependencies) => {
     }
   }
 
+  async function getSonosGroup() {
+    const sonosRefreshed = await refreshSonosToken();
+    if (!sonosRefreshed) {
+      console.error('Aborting due to Sonos token refresh failure.');
+      return null;
+    }
+
+    console.log('Fetching Sonos households...');
+    const {
+      data: { households },
+    } = await sonosApi.get('/households');
+    if (!households || households.length === 0) {
+      console.error('No Sonos households found on this account.');
+      return null;
+    }
+    const householdId = households[0].id;
+    console.log(`Found household ID: ${householdId}`);
+
+    console.log('Fetching groups/speakers in household...');
+    const {
+      data: { groups },
+    } = await sonosApi.get(`/households/${householdId}/groups`);
+    const targetGroup = groups.find(
+      (g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase(),
+    );
+
+    if (!targetGroup) {
+      console.warn(`Could not find a Sonos speaker or group named '${TARGET_DEVICE_NAME}'.`);
+      console.log(
+        'Available groups:',
+        groups.map((g) => g.name),
+      );
+      return null;
+    }
+    const groupId = targetGroup.id;
+    console.log(`Found target group '${targetGroup.name}' with ID: ${groupId}`);
+    return { householdId, groupId };
+  }
+
+  async function setVolume(volume) {
+    console.log(`Attempting to set volume to ${volume}...`);
+    try {
+      const group = await getSonosGroup();
+      if (!group) {
+        console.error('Could not get Sonos group. Aborting volume change.');
+        return;
+      }
+      const { groupId } = group;
+      await sonosApi.post(`/groups/${groupId}/groupVolume`, { volume });
+      console.log(`Successfully set volume to ${volume}.`);
+    } catch (err) {
+      const errorData = err.response ? err.response.data : err.message;
+      console.error(
+        'An error occurred during volume change attempt:',
+        JSON.stringify(errorData, null, 2),
+      );
+    }
+  }
+
   async function playFavoriteAfterDelay(favoriteName) {
     if (!favoriteName) {
       console.error('Playback error: No favorite name was provided.');
@@ -223,41 +283,12 @@ module.exports = (dependencies) => {
     console.log(`Wait finished. Attempting to play '${favoriteName}' on Sonos.`);
 
     try {
-      const sonosRefreshed = await refreshSonosToken();
-      if (!sonosRefreshed) {
-        console.error('Aborting playback due to Sonos token refresh failure.');
+      const group = await getSonosGroup();
+      if (!group) {
+        console.error('Could not get Sonos group. Aborting playback.');
         return;
       }
-
-      console.log('Fetching Sonos households...');
-      const {
-        data: { households },
-      } = await sonosApi.get('/households');
-      if (!households || households.length === 0) {
-        console.error('No Sonos households found on this account.');
-        return;
-      }
-      const householdId = households[0].id;
-      console.log(`Found household ID: ${householdId}`);
-
-      console.log('Fetching groups/speakers in household...');
-      const {
-        data: { groups },
-      } = await sonosApi.get(`/households/${householdId}/groups`);
-      const targetGroup = groups.find(
-        (g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase(),
-      );
-
-      if (!targetGroup) {
-        console.warn(`Could not find a Sonos speaker or group named '${TARGET_DEVICE_NAME}'.`);
-        console.log(
-          'Available groups:',
-          groups.map((g) => g.name),
-        );
-        return;
-      }
-      const groupId = targetGroup.id;
-      console.log(`Found target group '${targetGroup.name}' with ID: ${groupId}`);
+      const { householdId, groupId } = group;
       await sonosApi.post(`/groups/${groupId}/groupVolume`, { volume: 30 });
 
       console.log("Fetching 'My Sonos' favorites...");
@@ -314,41 +345,12 @@ module.exports = (dependencies) => {
     console.log('Attempting to switch to Line-In on Sonos.');
 
     try {
-      const sonosRefreshed = await refreshSonosToken();
-      if (!sonosRefreshed) {
-        console.error('Aborting switch due to Sonos token refresh failure.');
+      const group = await getSonosGroup();
+      if (!group) {
+        console.error('Could not get Sonos group. Aborting switch to Line-In.');
         return;
       }
-
-      console.log('Fetching Sonos households...');
-      const {
-        data: { households },
-      } = await sonosApi.get('/households');
-      if (!households || households.length === 0) {
-        console.error('No Sonos households found on this account.');
-        return;
-      }
-      const householdId = households[0].id;
-      console.log(`Found household ID: ${householdId}`);
-
-      console.log('Fetching groups/speakers in household...');
-      const {
-        data: { groups },
-      } = await sonosApi.get(`/households/${householdId}/groups`);
-      const targetGroup = groups.find(
-        (g) => g.name.toLowerCase() === TARGET_DEVICE_NAME.toLowerCase(),
-      );
-
-      if (!targetGroup) {
-        console.warn(`Could not find a Sonos speaker or group named '${TARGET_DEVICE_NAME}'.`);
-        console.log(
-          'Available groups:',
-          groups.map((g) => g.name),
-        );
-        return;
-      }
-      const groupId = targetGroup.id;
-      console.log(`Found target group '${targetGroup.name}' with ID: ${groupId}`);
+      const { groupId } = group;
 
       console.log('Pausing current playback...');
       await sonosApi.post(`/groups/${groupId}/playback/pause`);
@@ -514,10 +516,21 @@ module.exports = (dependencies) => {
         res.status(202).send('Webhook for line-in accepted. Processing switch request.');
       });
 
+      app.post('/volume', async (req, res) => {
+        const { volume } = req.body;
+        if (volume === undefined || typeof volume !== 'number' || volume < 0 || volume > 100) {
+          return res.status(400).send('Invalid "volume" in request body. It must be a number between 0 and 100.');
+        }
+        console.log(`Received volume change request: ${volume}`);
+        await setVolume(volume);
+        res.status(202).send(`Volume change request for '${volume}' accepted.`);
+      });
+
       app.listen(WEBHOOK_PORT, '0.0.0.0', () => {
         console.log(`Server listening on http://0.0.0.0:${WEBHOOK_PORT} for dynamic webhooks.`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/play/Your_Favorite_Name`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/line-in`);
+        console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/volume`);
       });
     }
   }
@@ -535,5 +548,7 @@ module.exports = (dependencies) => {
     handleSonosCallback,
     handleSpotifyCallback,
     main,
+    getSonosGroup,
+    setVolume,
   };
 };
