@@ -1,3 +1,5 @@
+const upnp = require('./upnp');
+
 module.exports = (dependencies) => {
   const {
     axios, fs, open, express, path, dotenv,
@@ -357,7 +359,9 @@ module.exports = (dependencies) => {
       // Rank tracks by relevance and popularity
       const rankedTracks = rankSearchResults(tracks, query, artist, track);
 
-      console.log(`Found ${tracks.length} tracks. Best match: "${rankedTracks[0].name}" by ${rankedTracks[0].artists[0].name}`);
+      console.log(
+        `Found ${tracks.length} tracks. Best match: "${rankedTracks[0].name}" by ${rankedTracks[0].artists[0].name}`,
+      );
 
       return {
         tracks: rankedTracks,
@@ -379,64 +383,43 @@ module.exports = (dependencies) => {
   }
 
   /**
-   * Play a Spotify track on Sonos using the cloud queue API.
-   * trackUri should be in format: spotify:track:XXXXX
+   * Play a Spotify track on Sonos using UPnP/SOAP (direct speaker control).
+   *
+   * This bypasses the Sonos Cloud API which doesn't support arbitrary track playback.
+   * Uses the same approach as node-sonos-http-api.
+   *
+   * @param {string} trackUri - Spotify URI (e.g., spotify:track:XXXXX)
+   * @param {object} trackInfo - Track metadata for display
    */
-  async function playSpotifyTrackOnSonos(trackUri, trackName = 'Unknown Track') {
-    console.log(`Attempting to play Spotify track on Sonos: ${trackUri}`);
+  async function playSpotifyTrackOnSonos(trackUri, trackInfo = {}) {
+    console.log(`Attempting to play Spotify track on Sonos via UPnP: ${trackUri}`);
 
+    // Pause Spotify app playback to avoid conflicts
     await pauseSpotify();
 
     try {
-      const group = await getSonosGroup();
-      if (!group) {
-        console.error('Could not get Sonos group. Aborting playback.');
-        return { success: false, error: 'Could not get Sonos group' };
-      }
-
-      const { householdId, groupId } = group;
-
-      // Set volume to comfortable level
-      await sonosApi.post(`/groups/${groupId}/groupVolume`, { volume: 30 });
-
-      // Get the music service session for Spotify
-      // First, we need to find the Spotify music service ID
-      console.log('Getting available music services...');
-      const servicesResponse = await sonosApi.get(`/households/${householdId}/musicServices/accounts`);
-      const spotifyService = servicesResponse.data.musicServices?.find(
-        (s) => s.name?.toLowerCase() === 'spotify' || s.service?.name?.toLowerCase() === 'spotify',
-      );
-
-      if (!spotifyService) {
-        console.error('Spotify music service not found on this Sonos household.');
-        console.log('Available services:', JSON.stringify(servicesResponse.data, null, 2));
-        return { success: false, error: 'Spotify not linked to Sonos' };
-      }
-
-      const serviceId = spotifyService.serviceId || spotifyService.id;
-      console.log(`Found Spotify service with ID: ${serviceId}`);
-
-      // Create a music service session and load the track
-      // Using the playback session approach
-      console.log('Creating playback session and loading track...');
-
-      // The Sonos API requires us to use the playback/loadCloudQueue endpoint
-      // with proper metadata for the track
-      const loadResponse = await sonosApi.post(`/groups/${groupId}/playback/loadCloudQueue`, {
-        playOnCompletion: true,
-        musicServiceAccountId: spotifyService.id,
+      // Use UPnP to play the track directly on the speaker
+      const result = await upnp.playSpotifyTrack(
         trackUri,
-      });
+        {
+          title: trackInfo.name || trackInfo.trackName || 'Unknown Track',
+          artist: trackInfo.artist || 'Unknown Artist',
+          album: trackInfo.album || 'Unknown Album',
+          albumArtUri: trackInfo.imageUrl || trackInfo.albumArtUri || '',
+        },
+        30,
+      ); // Set volume to 30
 
-      console.log(`Successfully initiated playback of "${trackName}" on Sonos.`);
-      return { success: true, response: loadResponse.data };
+      if (result.success) {
+        console.log(`Successfully started playback of "${trackInfo.name || trackUri}" via UPnP.`);
+        return { success: true };
+      }
+
+      console.error('UPnP playback failed:', result.error);
+      return { success: false, error: result.error };
     } catch (err) {
-      const errorData = err.response ? err.response.data : err.message;
-      console.error('Error playing Spotify track on Sonos:', JSON.stringify(errorData, null, 2));
-
-      // If cloud queue doesn't work, try the alternative approach
-      // using loadLineIn or direct streaming (fallback)
-      return { success: false, error: errorData };
+      console.error('Error playing Spotify track via UPnP:', err.message);
+      return { success: false, error: err.message };
     }
   }
 
@@ -446,7 +429,9 @@ module.exports = (dependencies) => {
   async function searchAndPlay(query, options = {}) {
     const { artist, track } = options;
 
-    console.log(`Search and play request: query="${query}", artist="${artist || ''}", track="${track || ''}"`);
+    console.log(
+      `Search and play request: query="${query}", artist="${artist || ''}", track="${track || ''}"`,
+    );
 
     try {
       const searchResult = await searchSpotify(query, { artist, track });
@@ -463,9 +448,18 @@ module.exports = (dependencies) => {
       const trackUri = bestTrack.uri; // e.g., spotify:track:XXXXX
       const trackName = `${bestTrack.name} by ${bestTrack.artists[0].name}`;
 
-      console.log(`Best match: "${trackName}" (popularity: ${bestTrack.popularity}, relevance: ${bestTrack.relevanceScore})`);
+      console.log(
+        `Best match: "${trackName}" (popularity: ${bestTrack.popularity}, relevance: ${bestTrack.relevanceScore})`,
+      );
 
-      const playResult = await playSpotifyTrackOnSonos(trackUri, trackName);
+      // Pass full track info for UPnP metadata
+      const trackInfo = {
+        name: bestTrack.name,
+        artist: bestTrack.artists[0].name,
+        album: bestTrack.album?.name,
+        imageUrl: bestTrack.album?.images?.[0]?.url,
+      };
+      const playResult = await playSpotifyTrackOnSonos(trackUri, trackInfo);
 
       return {
         success: playResult.success,
@@ -849,13 +843,79 @@ module.exports = (dependencies) => {
         }
       });
 
+      // UPnP connectivity test endpoint
+      app.get('/upnp/test', async (req, res) => {
+        console.log('Testing UPnP connectivity to Sonos speaker...');
+        try {
+          const result = await upnp.testConnection();
+          if (result.success) {
+            return res.status(200).json({
+              success: true,
+              message: `UPnP connection to ${upnp.SONOS_SPEAKER_IP}:${upnp.SONOS_SPEAKER_PORT} successful`,
+              speakerIp: upnp.SONOS_SPEAKER_IP,
+            });
+          }
+          return res.status(500).json({
+            success: false,
+            error: result.error,
+            speakerIp: upnp.SONOS_SPEAKER_IP,
+            hint: 'Check SONOS_SPEAKER_IP environment variable',
+          });
+        } catch (err) {
+          return res.status(500).json({
+            success: false,
+            error: err.message,
+            speakerIp: upnp.SONOS_SPEAKER_IP,
+          });
+        }
+      });
+
+      // Direct UPnP play endpoint (for testing/debugging)
+      app.post('/upnp/play', async (req, res) => {
+        const {
+          uri, title, artist, album,
+        } = req.body;
+
+        if (!uri || !uri.startsWith('spotify:track:')) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing or invalid "uri" in request body. Must be spotify:track:XXXXX format.',
+          });
+        }
+
+        console.log(`Direct UPnP play request: ${uri}`);
+
+        try {
+          const result = await upnp.playSpotifyTrack(uri, { title, artist, album }, 30);
+          if (result.success) {
+            return res.status(200).json({
+              success: true,
+              message: `Playing ${title || uri} via UPnP`,
+            });
+          }
+          return res.status(500).json({
+            success: false,
+            error: result.error,
+          });
+        } catch (err) {
+          return res.status(500).json({
+            success: false,
+            error: err.message,
+          });
+        }
+      });
+
       app.listen(WEBHOOK_PORT, '0.0.0.0', () => {
         console.log(`Server listening on http://0.0.0.0:${WEBHOOK_PORT} for dynamic webhooks.`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/play/Your_Favorite_Name`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/line-in`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/volume`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/search?q=muse+starlight`);
-        console.log(`Example Usage: GET  http://<YOUR_IP>:${WEBHOOK_PORT}/search?artist=Muse&track=Starlight`);
+        console.log(
+          `Example Usage: GET  http://<YOUR_IP>:${WEBHOOK_PORT}/search?artist=Muse&track=Starlight`,
+        );
+        console.log(`Example Usage: GET  http://<YOUR_IP>:${WEBHOOK_PORT}/upnp/test`);
+        console.log(`Sonos UPnP endpoint: ${upnp.SONOS_SPEAKER_IP}:${upnp.SONOS_SPEAKER_PORT}`);
       });
     }
   }
@@ -875,10 +935,12 @@ module.exports = (dependencies) => {
     main,
     getSonosGroup,
     setVolume,
-    // New Spotify search functions
+    // Spotify search functions
     searchSpotify,
     rankSearchResults,
     playSpotifyTrackOnSonos,
     searchAndPlay,
+    // UPnP module (for direct speaker control)
+    upnp,
   };
 };

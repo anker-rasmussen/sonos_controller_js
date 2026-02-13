@@ -109,6 +109,7 @@ Using your phone's Wi-Fi connection is a reliable trigger for a "home arrival" a
 ## API Reference
 
 ### `POST /play/:favoriteName`
+
 Play a "My Sonos" favorite by name.
 
 ```bash
@@ -120,15 +121,17 @@ curl -X POST http://192.168.1.50:5001/play/daylist
 Search Spotify for a track and play the best match on Sonos. Supports multiple query formats for flexibility.
 
 #### Query Parameters
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `q` | Free-form search query (artist + song combined) | `?q=muse+starlight` |
-| `artist` | Artist name filter | `?artist=Muse` |
-| `track` | Track name filter | `?track=Starlight` |
+
+| Parameter | Description                                     | Example             |
+| --------- | ----------------------------------------------- | ------------------- |
+| `q`       | Free-form search query (artist + song combined) | `?q=muse+starlight` |
+| `artist`  | Artist name filter                              | `?artist=Muse`      |
+| `track`   | Track name filter                               | `?track=Starlight`  |
 
 You can combine parameters: `?artist=Muse&track=Starlight`
 
 #### JSON Body (Alternative)
+
 ```json
 {
   "q": "muse starlight",
@@ -158,6 +161,7 @@ curl "http://192.168.1.50:5001/search?q=queen+bohemian+rhapsody"
 #### Response
 
 **Success (200)**:
+
 ```json
 {
   "success": true,
@@ -179,6 +183,7 @@ curl "http://192.168.1.50:5001/search?q=queen+bohemian+rhapsody"
 ```
 
 **Not Found (404)**:
+
 ```json
 {
   "success": false,
@@ -188,7 +193,9 @@ curl "http://192.168.1.50:5001/search?q=queen+bohemian+rhapsody"
 ```
 
 #### Ranking Algorithm
+
 Results are ranked by a combined score:
+
 - **Popularity** (0-100): Spotify's track popularity score
 - **Exact track match** (+100): Track name exactly matches query
 - **Partial track match** (+50): Track name contains query
@@ -196,6 +203,7 @@ Results are ranked by a combined score:
 - **Partial artist match** (+50): Artist name contains query
 
 ### `POST /line-in`
+
 Switch to Line-In input.
 
 ```bash
@@ -203,6 +211,7 @@ curl -X POST http://192.168.1.50:5001/line-in
 ```
 
 ### `POST /volume`
+
 Set the volume (0-100).
 
 ```bash
@@ -210,6 +219,60 @@ curl -X POST http://192.168.1.50:5001/volume \
   -H "Content-Type: application/json" \
   -d '{"volume": 30}'
 ```
+
+### `GET /upnp/test`
+
+Test UPnP connectivity to the Sonos speaker. Useful for debugging.
+
+```bash
+curl http://192.168.1.50:5001/upnp/test
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "UPnP connection to 192.168.1.211:1400 successful",
+  "speakerIp": "192.168.1.211"
+}
+```
+
+### `POST /upnp/play`
+
+Directly play a Spotify track via UPnP (for testing/debugging).
+
+```bash
+curl -X POST http://192.168.1.50:5001/upnp/play \
+  -H "Content-Type: application/json" \
+  -d '{"uri": "spotify:track:3skn2lauGk7Dx6bVIt5DVj", "title": "Starlight", "artist": "Muse"}'
+```
+
+## Architecture: Dual API Approach
+
+This controller uses two different APIs to interact with Sonos:
+
+### Sonos Cloud API (Official)
+- Used for: `/play/:favorite` endpoint, volume control, household discovery
+- Requires: OAuth tokens (client ID/secret, user authorization)
+- Limitation: Cannot queue arbitrary Spotify tracks (only favorites)
+
+### UPnP/SOAP (Direct Speaker)
+- Used for: `/search` endpoint (arbitrary track playback)
+- Requires: Local network access to Sonos speaker IP
+- Approach: Same as [node-sonos-http-api](https://github.com/jishi/node-sonos-http-api)
+
+The `/search` endpoint searches Spotify via their API, then uses UPnP to load the track directly on the Sonos speaker. This bypasses the Cloud API limitation that prevents arbitrary track playback.
+
+### Configuration
+
+Set the `SONOS_SPEAKER_IP` environment variable to your Sonos speaker's local IP:
+
+```bash
+# .env
+SONOS_SPEAKER_IP=192.168.1.211
+```
+
+Find your speaker's IP in the Sonos app: **Settings → System → About My System**
 
 ## Voice Pipeline Integration
 
@@ -221,6 +284,7 @@ The `/search` endpoint is designed for voice assistant integration. Example flow
 4. Server searches Spotify, ranks results, plays best match on Sonos
 
 **Integration with flightcom voice pipeline:**
+
 ```bash
 # Voice transcription produces: "play bohemian rhapsody"
 # Pipeline extracts query and POSTs to:
