@@ -265,6 +265,236 @@ module.exports = (dependencies) => {
     }
   }
 
+  /**
+   * Rank search results by relevance (exact match) and popularity.
+   * Scoring: exact artist match (+50), exact track match (+50), popularity (0-100)
+   */
+  function rankSearchResults(tracks, query, artist, track) {
+    const normalizedQuery = (query || '').toLowerCase().trim();
+    const normalizedArtist = (artist || '').toLowerCase().trim();
+    const normalizedTrack = (track || '').toLowerCase().trim();
+
+    return tracks
+      .map((t) => {
+        let score = t.popularity || 0; // Spotify popularity score (0-100)
+
+        const trackName = t.name.toLowerCase();
+        const artistNames = t.artists.map((a) => a.name.toLowerCase());
+        const primaryArtist = artistNames[0] || '';
+
+        // Exact track name match bonus
+        if (normalizedTrack && trackName === normalizedTrack) {
+          score += 100;
+        } else if (normalizedTrack && trackName.includes(normalizedTrack)) {
+          score += 50;
+        }
+
+        // Exact artist match bonus
+        if (normalizedArtist && artistNames.includes(normalizedArtist)) {
+          score += 100;
+        } else if (normalizedArtist && artistNames.some((a) => a.includes(normalizedArtist))) {
+          score += 50;
+        }
+
+        // Free-form query matching (both artist and track name)
+        if (normalizedQuery) {
+          const fullTrackString = `${primaryArtist} ${trackName}`.toLowerCase();
+          if (fullTrackString.includes(normalizedQuery)) {
+            score += 30;
+          }
+          // Check if query contains track name
+          if (normalizedQuery.includes(trackName)) {
+            score += 40;
+          }
+        }
+
+        return { ...t, relevanceScore: score };
+      })
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+  }
+
+  /**
+   * Search Spotify for tracks matching a query.
+   * Returns ranked results preferring exact matches and popular tracks.
+   */
+  async function searchSpotify(query, options = {}) {
+    const { artist, track, limit = 10 } = options;
+
+    // Build search query - supports both free-form and structured searches
+    let searchQuery = query || '';
+    if (artist && track) {
+      searchQuery = `artist:${artist} track:${track}`;
+    } else if (artist) {
+      searchQuery = `artist:${artist}`;
+    } else if (track) {
+      searchQuery = `track:${track}`;
+    }
+
+    if (!searchQuery.trim()) {
+      console.error('Search error: No query provided.');
+      return { tracks: [], bestMatch: null };
+    }
+
+    console.log(`Searching Spotify for: "${searchQuery}"`);
+
+    try {
+      const response = await spotifyApi.get('/search', {
+        params: {
+          q: searchQuery,
+          type: 'track',
+          limit,
+          market: 'GB', // Use GB market for UK-based results
+        },
+      });
+
+      const tracks = response.data.tracks.items;
+
+      if (!tracks || tracks.length === 0) {
+        console.log('No tracks found for query.');
+        return { tracks: [], bestMatch: null };
+      }
+
+      // Rank tracks by relevance and popularity
+      const rankedTracks = rankSearchResults(tracks, query, artist, track);
+
+      console.log(`Found ${tracks.length} tracks. Best match: "${rankedTracks[0].name}" by ${rankedTracks[0].artists[0].name}`);
+
+      return {
+        tracks: rankedTracks,
+        bestMatch: rankedTracks[0],
+      };
+    } catch (err) {
+      // If 401, try refreshing token and retry once
+      if (err.response && err.response.status === 401) {
+        console.log('Spotify token expired, refreshing...');
+        const refreshed = await refreshSpotifyToken();
+        if (refreshed) {
+          return searchSpotify(query, options);
+        }
+      }
+      const errorData = err.response ? err.response.data : err.message;
+      console.error('Spotify search error:', JSON.stringify(errorData, null, 2));
+      throw err;
+    }
+  }
+
+  /**
+   * Play a Spotify track on Sonos using the cloud queue API.
+   * trackUri should be in format: spotify:track:XXXXX
+   */
+  async function playSpotifyTrackOnSonos(trackUri, trackName = 'Unknown Track') {
+    console.log(`Attempting to play Spotify track on Sonos: ${trackUri}`);
+
+    await pauseSpotify();
+
+    try {
+      const group = await getSonosGroup();
+      if (!group) {
+        console.error('Could not get Sonos group. Aborting playback.');
+        return { success: false, error: 'Could not get Sonos group' };
+      }
+
+      const { householdId, groupId } = group;
+
+      // Set volume to comfortable level
+      await sonosApi.post(`/groups/${groupId}/groupVolume`, { volume: 30 });
+
+      // Get the music service session for Spotify
+      // First, we need to find the Spotify music service ID
+      console.log('Getting available music services...');
+      const servicesResponse = await sonosApi.get(`/households/${householdId}/musicServices/accounts`);
+      const spotifyService = servicesResponse.data.musicServices?.find(
+        (s) => s.name?.toLowerCase() === 'spotify' || s.service?.name?.toLowerCase() === 'spotify',
+      );
+
+      if (!spotifyService) {
+        console.error('Spotify music service not found on this Sonos household.');
+        console.log('Available services:', JSON.stringify(servicesResponse.data, null, 2));
+        return { success: false, error: 'Spotify not linked to Sonos' };
+      }
+
+      const serviceId = spotifyService.serviceId || spotifyService.id;
+      console.log(`Found Spotify service with ID: ${serviceId}`);
+
+      // Create a music service session and load the track
+      // Using the playback session approach
+      console.log('Creating playback session and loading track...');
+
+      // The Sonos API requires us to use the playback/loadCloudQueue endpoint
+      // with proper metadata for the track
+      const loadResponse = await sonosApi.post(`/groups/${groupId}/playback/loadCloudQueue`, {
+        playOnCompletion: true,
+        musicServiceAccountId: spotifyService.id,
+        trackUri,
+      });
+
+      console.log(`Successfully initiated playback of "${trackName}" on Sonos.`);
+      return { success: true, response: loadResponse.data };
+    } catch (err) {
+      const errorData = err.response ? err.response.data : err.message;
+      console.error('Error playing Spotify track on Sonos:', JSON.stringify(errorData, null, 2));
+
+      // If cloud queue doesn't work, try the alternative approach
+      // using loadLineIn or direct streaming (fallback)
+      return { success: false, error: errorData };
+    }
+  }
+
+  /**
+   * Search and play: Combined function that searches Spotify and plays the best match.
+   */
+  async function searchAndPlay(query, options = {}) {
+    const { artist, track } = options;
+
+    console.log(`Search and play request: query="${query}", artist="${artist || ''}", track="${track || ''}"`);
+
+    try {
+      const searchResult = await searchSpotify(query, { artist, track });
+
+      if (!searchResult.bestMatch) {
+        return {
+          success: false,
+          error: 'No matching tracks found',
+          query: { q: query, artist, track },
+        };
+      }
+
+      const bestTrack = searchResult.bestMatch;
+      const trackUri = bestTrack.uri; // e.g., spotify:track:XXXXX
+      const trackName = `${bestTrack.name} by ${bestTrack.artists[0].name}`;
+
+      console.log(`Best match: "${trackName}" (popularity: ${bestTrack.popularity}, relevance: ${bestTrack.relevanceScore})`);
+
+      const playResult = await playSpotifyTrackOnSonos(trackUri, trackName);
+
+      return {
+        success: playResult.success,
+        track: {
+          name: bestTrack.name,
+          artist: bestTrack.artists[0].name,
+          album: bestTrack.album?.name,
+          uri: trackUri,
+          popularity: bestTrack.popularity,
+          relevanceScore: bestTrack.relevanceScore,
+          imageUrl: bestTrack.album?.images?.[0]?.url,
+        },
+        alternatives: searchResult.tracks.slice(1, 5).map((t) => ({
+          name: t.name,
+          artist: t.artists[0].name,
+          uri: t.uri,
+        })),
+        error: playResult.error,
+      };
+    } catch (err) {
+      console.error('Search and play error:', err.message);
+      return {
+        success: false,
+        error: err.message,
+        query: { q: query, artist, track },
+      };
+    }
+  }
+
   async function playFavoriteAfterDelay(favoriteName) {
     if (!favoriteName) {
       console.error('Playback error: No favorite name was provided.');
@@ -519,11 +749,104 @@ module.exports = (dependencies) => {
       app.post('/volume', async (req, res) => {
         const { volume } = req.body;
         if (volume === undefined || typeof volume !== 'number' || volume < 0 || volume > 100) {
-          return res.status(400).send('Invalid "volume" in request body. It must be a number between 0 and 100.');
+          return res
+            .status(400)
+            .send('Invalid "volume" in request body. It must be a number between 0 and 100.');
         }
         console.log(`Received volume change request: ${volume}`);
         await setVolume(volume);
-        res.status(202).send(`Volume change request for '${volume}' accepted.`);
+        return res.status(202).send(`Volume change request for '${volume}' accepted.`);
+      });
+
+      // Spotify search and play endpoint
+      // Usage: POST /search?q=artist+song
+      //    or: POST /search?artist=Muse&track=Starlight
+      //    or: POST /search with JSON body { "q": "...", "artist": "...", "track": "..." }
+      app.post('/search', async (req, res) => {
+        // Accept query params OR JSON body
+        const q = req.query.q || req.body?.q || '';
+        const artist = req.query.artist || req.body?.artist || '';
+        const track = req.query.track || req.body?.track || '';
+
+        // Need at least one of: q, artist, or track
+        if (!q && !artist && !track) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing search params. Provide ?q=query or ?artist=X&track=Y or JSON body.',
+            usage: {
+              queryString: 'POST /search?q=artist+song',
+              structured: 'POST /search?artist=Muse&track=Starlight',
+              jsonBody: 'POST /search with body { "q": "muse starlight" }',
+            },
+          });
+        }
+
+        const logMsg = `Received search request: q="${q}", artist="${artist}", track="${track}"`;
+        console.log(logMsg);
+
+        try {
+          const result = await searchAndPlay(q, { artist, track });
+          if (result.success) {
+            return res.status(200).json({
+              success: true,
+              message: `Now playing: ${result.track.name} by ${result.track.artist}`,
+              track: result.track,
+              alternatives: result.alternatives,
+            });
+          }
+          return res.status(result.error === 'No matching tracks found' ? 404 : 500).json({
+            success: false,
+            error: result.error,
+            query: result.query,
+          });
+        } catch (err) {
+          console.error('Search endpoint error:', err);
+          return res.status(500).json({
+            success: false,
+            error: err.message || 'Internal server error',
+          });
+        }
+      });
+
+      // GET version of search for easy testing in browser
+      app.get('/search', async (req, res) => {
+        const { q, artist, track } = req.query;
+
+        if (!q && !artist && !track) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing search parameters',
+            usage: 'GET /search?q=artist+song or GET /search?artist=X&track=Y',
+          });
+        }
+
+        const qStr = q || '';
+        const artistStr = artist || '';
+        const trackStr = track || '';
+        console.log(`Received GET search: q="${qStr}", artist="${artistStr}", track="${trackStr}"`);
+
+        try {
+          const result = await searchAndPlay(qStr, { artist, track });
+          if (result.success) {
+            return res.status(200).json({
+              success: true,
+              message: `Now playing: ${result.track.name} by ${result.track.artist}`,
+              track: result.track,
+              alternatives: result.alternatives,
+            });
+          }
+          return res.status(result.error === 'No matching tracks found' ? 404 : 500).json({
+            success: false,
+            error: result.error,
+            query: result.query,
+          });
+        } catch (err) {
+          console.error('Search endpoint error:', err);
+          return res.status(500).json({
+            success: false,
+            error: err.message || 'Internal server error',
+          });
+        }
       });
 
       app.listen(WEBHOOK_PORT, '0.0.0.0', () => {
@@ -531,6 +854,8 @@ module.exports = (dependencies) => {
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/play/Your_Favorite_Name`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/line-in`);
         console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/volume`);
+        console.log(`Example Usage: POST http://<YOUR_IP>:${WEBHOOK_PORT}/search?q=muse+starlight`);
+        console.log(`Example Usage: GET  http://<YOUR_IP>:${WEBHOOK_PORT}/search?artist=Muse&track=Starlight`);
       });
     }
   }
@@ -550,5 +875,10 @@ module.exports = (dependencies) => {
     main,
     getSonosGroup,
     setVolume,
+    // New Spotify search functions
+    searchSpotify,
+    rankSearchResults,
+    playSpotifyTrackOnSonos,
+    searchAndPlay,
   };
 };

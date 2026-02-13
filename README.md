@@ -15,6 +15,7 @@ This version uses the official Sonos Control API, which is more reliable than th
 ## Features
 
 - **Spotify Integration**: Automatically pauses any currently playing Spotify track before playing a Sonos favorite. This is necessary because the Sonos speaker will not play if Spotify is currently playing from it.
+- **🆕 Spotify Search**: Search for any track on Spotify and play it on Sonos via the `/search` endpoint. Perfect for voice assistants and automation.
 - **Dynamic Playback**: Play any of your "My Sonos" favorites by including its name in the request URL (e.g., `/play/Upbeat_Morning`).
 - **Direct Sonos Control**: Uses the official Sonos API for robust and reliable playback.
 - **Automation Ready**: Designed to be triggered by any webhook-capable service for endless automation possibilities.
@@ -104,6 +105,127 @@ Using your phone's Wi-Fi connection is a reliable trigger for a "home arrival" a
 
 - **Home Arrival:** Triggered by Wi-Fi, URL: `http://192.168.1.50:5001/play/Classical%20in%20the%20Background`
 - **Morning Playlist:** Triggered by "Time of Day" (e.g., 8 AM), URL: `http://192.168.1.50:5001/play/Upbeat%20Morning`
+
+## API Reference
+
+### `POST /play/:favoriteName`
+Play a "My Sonos" favorite by name.
+
+```bash
+curl -X POST http://192.168.1.50:5001/play/daylist
+```
+
+### `POST /search` - Spotify Search & Play
+
+Search Spotify for a track and play the best match on Sonos. Supports multiple query formats for flexibility.
+
+#### Query Parameters
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `q` | Free-form search query (artist + song combined) | `?q=muse+starlight` |
+| `artist` | Artist name filter | `?artist=Muse` |
+| `track` | Track name filter | `?track=Starlight` |
+
+You can combine parameters: `?artist=Muse&track=Starlight`
+
+#### JSON Body (Alternative)
+```json
+{
+  "q": "muse starlight",
+  "artist": "Muse",
+  "track": "Starlight"
+}
+```
+
+#### Examples
+
+```bash
+# Simple free-form search
+curl -X POST "http://192.168.1.50:5001/search?q=muse+starlight"
+
+# Structured search with artist and track
+curl -X POST "http://192.168.1.50:5001/search?artist=Muse&track=Starlight"
+
+# JSON body
+curl -X POST http://192.168.1.50:5001/search \
+  -H "Content-Type: application/json" \
+  -d '{"q": "bohemian rhapsody"}'
+
+# GET request (for browser testing)
+curl "http://192.168.1.50:5001/search?q=queen+bohemian+rhapsody"
+```
+
+#### Response
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "message": "Now playing: Starlight by Muse",
+  "track": {
+    "name": "Starlight",
+    "artist": "Muse",
+    "album": "Black Holes and Revelations",
+    "uri": "spotify:track:3skn2lauGk7Dx6bVIt5DVj",
+    "popularity": 82,
+    "relevanceScore": 232,
+    "imageUrl": "https://i.scdn.co/image/..."
+  },
+  "alternatives": [
+    { "name": "Starlight - Live", "artist": "Muse", "uri": "spotify:track:..." },
+    { "name": "Starlight (Acoustic)", "artist": "Muse", "uri": "spotify:track:..." }
+  ]
+}
+```
+
+**Not Found (404)**:
+```json
+{
+  "success": false,
+  "error": "No matching tracks found",
+  "query": { "q": "nonexistent song xyz" }
+}
+```
+
+#### Ranking Algorithm
+Results are ranked by a combined score:
+- **Popularity** (0-100): Spotify's track popularity score
+- **Exact track match** (+100): Track name exactly matches query
+- **Partial track match** (+50): Track name contains query
+- **Exact artist match** (+100): Artist name exactly matches query
+- **Partial artist match** (+50): Artist name contains query
+
+### `POST /line-in`
+Switch to Line-In input.
+
+```bash
+curl -X POST http://192.168.1.50:5001/line-in
+```
+
+### `POST /volume`
+Set the volume (0-100).
+
+```bash
+curl -X POST http://192.168.1.50:5001/volume \
+  -H "Content-Type: application/json" \
+  -d '{"volume": 30}'
+```
+
+## Voice Pipeline Integration
+
+The `/search` endpoint is designed for voice assistant integration. Example flow:
+
+1. Voice input: "Play Starlight by Muse"
+2. Transcription → "starlight by muse"
+3. HTTP request: `POST /search?q=starlight+by+muse`
+4. Server searches Spotify, ranks results, plays best match on Sonos
+
+**Integration with flightcom voice pipeline:**
+```bash
+# Voice transcription produces: "play bohemian rhapsody"
+# Pipeline extracts query and POSTs to:
+curl -X POST "http://centcom:5001/search?q=bohemian+rhapsody"
+```
 
 ### 5. Deployment with Systemd
 
