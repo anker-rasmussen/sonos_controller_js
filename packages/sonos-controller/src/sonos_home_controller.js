@@ -308,6 +308,23 @@ module.exports = (dependencies) => {
           if (normalizedQuery.includes(trackName)) {
             score += 40;
           }
+
+          // Fuzzy matching: handle spacing variations (e.g., "newborn" vs "new born")
+          const normalizedQueryNoSpaces = normalizedQuery.replace(/\s+/g, '');
+          const trackNameNoSpaces = trackName.replace(/\s+/g, '');
+          const fullStringNoSpaces = `${primaryArtist}${trackName}`.replace(/\s+/g, '');
+
+          // Check if track name without spaces matches query
+          if (trackNameNoSpaces === normalizedQueryNoSpaces) {
+            score += 80; // Very high bonus for exact match ignoring spaces
+          } else if (trackNameNoSpaces.includes(normalizedQueryNoSpaces)) {
+            score += 50; // Good bonus for partial match ignoring spaces
+          }
+
+          // Check full string (artist + track) without spaces
+          if (fullStringNoSpaces.includes(normalizedQueryNoSpaces)) {
+            score += 40; // Bonus for spaceless match in full string
+          }
         }
 
         return { ...t, relevanceScore: score };
