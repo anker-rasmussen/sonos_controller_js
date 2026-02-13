@@ -91,9 +91,9 @@ function spotifyToSonosUri(spotifyUri) {
   // Encode the Spotify URI for Sonos
   const encodedUri = encodeURIComponent(`spotify:track:${trackId}`);
 
-  // sid=9 is Spotify's service ID in Sonos
+  // sid=12 is Spotify's service ID on this Sonos speaker
   // flags=8224 and sn=7 are standard for Spotify tracks
-  return `x-sonos-spotify:${encodedUri}?sid=9&flags=8224&sn=7`;
+  return `x-sonos-spotify:${encodedUri}?sid=12&flags=8224&sn=7`;
 }
 
 /**
@@ -111,7 +111,7 @@ function buildSpotifyMetadata(trackInfo = {}) {
 
   // Build the resource URI
   const resourceUri = trackId
-    ? `x-sonos-spotify:spotify%3atrack%3a${trackId}?sid=9&flags=8224&sn=7`
+    ? `x-sonos-spotify:spotify%3atrack%3a${trackId}?sid=12&flags=8224&sn=7`
     : '';
 
   const didl = `<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">
