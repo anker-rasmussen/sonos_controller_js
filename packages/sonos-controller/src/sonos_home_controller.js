@@ -416,7 +416,7 @@ module.exports = (dependencies) => {
 
     try {
       // Use UPnP to play the track directly on the speaker
-      const result = await upnp.playSpotifyTrackWithRadio(
+      const result = await upnp.playSpotifyTrack(
         trackUri,
         {
           title: trackInfo.name || trackInfo.trackName || 'Unknown Track',
@@ -903,7 +903,7 @@ module.exports = (dependencies) => {
         console.log(`Direct UPnP play request: ${uri}`);
 
         try {
-          const result = await upnp.playSpotifyTrackWithRadio(uri, { title, artist, album }, 30);
+          const result = await upnp.playSpotifyTrack(uri, { title, artist, album }, 30);
           if (result.success) {
             return res.status(200).json({
               success: true,
