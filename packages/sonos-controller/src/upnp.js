@@ -275,6 +275,89 @@ async function playSpotifyTrack(spotifyUri, trackInfo = {}, volume = null) {
 /**
  * Test UPnP connectivity to the Sonos speaker.
  */
+
+/**
+ * Convert a Spotify track URI to Sonos-compatible RADIO format.
+ * Input: spotify:track:4uLU6hMCjMI75M1A2tKUQC
+ * Output: x-sonos-spotify:spotify%3atrackradio%3a4uLU6hMCjMI75M1A2tKUQC?sid=12&flags=8224&sn=7
+ */
+function spotifyToSonosRadioUri(spotifyUri) {
+  // Extract the track ID
+  const match = spotifyUri.match(/spotify:track:([a-zA-Z0-9]+)/);
+  if (!match) {
+    throw new Error(`Invalid Spotify URI format: ${spotifyUri}`);
+  }
+
+  const trackId = match[1];
+  // Encode for radio mode - use trackradio instead of track
+  const encodedUri = encodeURIComponent(`spotify:trackradio:${trackId}`);
+
+  return `x-sonos-spotify:${encodedUri}?sid=12&flags=8224&sn=7`;
+}
+
+/**
+ * Play a Spotify track on Sonos via UPnP, then switch to radio mode.
+ * This plays the track first, then switches to "track radio" for continuous playback.
+ *
+ * @param {string} spotifyUri - Spotify URI (e.g., spotify:track:4uLU6hMCjMI75M1A2tKUQC)
+ * @param {object} trackInfo - Track metadata (title, artist, album, albumArtUri)
+ * @param {number} volume - Optional volume level (0-100)
+ */
+async function playSpotifyTrackWithRadio(spotifyUri, trackInfo = {}, volume = null) {
+  try {
+    // Set volume if specified
+    if (volume !== null) {
+      await setVolume(volume);
+    }
+
+    // Load and play the requested track first
+    await setAVTransportURI(spotifyUri, trackInfo);
+    await play();
+
+    console.log(`[UPnP] Successfully started playing: ${trackInfo.title || spotifyUri}`);
+
+    // Switch to radio mode for continuous playback
+    console.log('[UPnP] Switching to Spotify Radio mode for continuous playback...');
+    
+    // Wait 2 seconds for the track to start
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Convert to radio URI
+    const radioUri = spotifyToSonosRadioUri(spotifyUri);
+    const trackId = spotifyUri.split(':')[2];
+    
+    // Build radio metadata
+    const radioMetadata = buildSpotifyMetadata({
+      ...trackInfo,
+      trackId: trackId,
+      title: `${trackInfo.title} Radio`,
+    });
+    
+    // Set the radio URI
+    const body = `
+      <InstanceID>0</InstanceID>
+      <CurrentURI>${escapeXml(radioUri)}</CurrentURI>
+      <CurrentURIMetaData>${escapeXml(radioMetadata)}</CurrentURIMetaData>
+    `;
+    
+    await soapRequest(
+      '/MediaRenderer/AVTransport/Control',
+      'SetAVTransportURI',
+      'urn:schemas-upnp-org:service:AVTransport:1',
+      body,
+    );
+    
+    // Play the radio
+    await play();
+    
+    console.log('[UPnP] Now playing Spotify Radio - similar tracks will auto-queue');
+
+    return { success: true };
+  } catch (err) {
+    console.error(`[UPnP] Error playing track with radio: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+}
 async function testConnection() {
   try {
     console.log(`[UPnP] Testing connection to Sonos at ${SONOS_SPEAKER_IP}:${SONOS_SPEAKER_PORT}`);
@@ -299,10 +382,12 @@ module.exports = {
 
   // High-level functions
   playSpotifyTrack,
+  playSpotifyTrackWithRadio,
   testConnection,
 
   // Utilities
   spotifyToSonosUri,
+  spotifyToSonosRadioUri,
   buildSpotifyMetadata,
   escapeXml,
 
