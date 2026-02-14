@@ -309,6 +309,24 @@ module.exports = (dependencies) => {
             score += 40;
           }
 
+          // Word-by-word matching: boost tracks with many matching query words
+          const queryWords = normalizedQuery.split(/\s+/).filter(w => w.length > 2); // Skip short words
+          const trackWords = trackName.split(/\s+/);
+          const fullWords = `${primaryArtist} ${trackName}`.split(/\s+/);
+          
+          let matchingWords = 0;
+          for (const qWord of queryWords) {
+            if (trackWords.some(tWord => tWord.includes(qWord) || qWord.includes(tWord))) {
+              matchingWords++;
+            } else if (fullWords.some(fWord => fWord.includes(qWord) || qWord.includes(fWord))) {
+              matchingWords += 0.5; // Half credit for artist-only match
+            }
+          }
+          
+          if (matchingWords > 0) {
+            score += matchingWords * 25; // Strong bonus per matching word
+          }
+
           // Fuzzy matching: handle spacing variations (e.g., "newborn" vs "new born")
           const normalizedQueryNoSpaces = normalizedQuery.replace(/\s+/g, '');
           const trackNameNoSpaces = trackName.replace(/\s+/g, '');
