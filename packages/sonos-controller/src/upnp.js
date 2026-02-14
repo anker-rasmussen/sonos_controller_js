@@ -323,7 +323,9 @@ async function playSpotifyTrackWithRadio(spotifyUri, trackInfo = {}, volume = nu
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Convert to radio URI
+    console.log(`[UPnP] Converting track to radio: ${spotifyUri}`);
     const radioUri = spotifyToSonosRadioUri(spotifyUri);
+    console.log(`[UPnP] Radio URI: ${radioUri}`);
     const trackId = spotifyUri.split(':')[2];
     
     // Build radio metadata
