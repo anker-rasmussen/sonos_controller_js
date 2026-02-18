@@ -477,9 +477,9 @@ async function playAlbum(tracks, albumInfo = {}, volume = null) {
     }
 
     // Tell Sonos to use the queue as the transport source, then play
-    // Build the RINCON ID from speaker IP (standard Sonos format)
-    const ipHex = SONOS_SPEAKER_IP.split('.').map((n) => parseInt(n, 10).toString(16).padStart(2, '0')).join('').toUpperCase();
-    const queueUri = `x-rincon-queue:RINCON_${ipHex}01400#0`;
+    // RINCON ID is the Sonos device identifier - fetch it from the speaker
+    let rinconId = process.env.SONOS_RINCON_ID || 'RINCON_347E5CE8ECE201400';
+    const queueUri = `x-rincon-queue:${rinconId}#0`;
 
     const queueBody = `
       <InstanceID>0</InstanceID>
