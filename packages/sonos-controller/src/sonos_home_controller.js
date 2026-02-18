@@ -460,12 +460,13 @@ module.exports = (dependencies) => {
 
   /**
    * Search and play: Combined function that searches Spotify and plays the best match.
+   * Pass options.radio = true to auto-queue similar tracks via Spotify Radio after playing.
    */
   async function searchAndPlay(query, options = {}) {
-    const { artist, track } = options;
+    const { artist, track, radio = true } = options;
 
     console.log(
-      `Search and play request: query="${query}", artist="${artist || ''}", track="${track || ''}"`,
+      `Search and play request: query="${query}", artist="${artist || ''}", track="${track || ''}", radio=${radio}`,
     );
 
     try {
@@ -494,7 +495,16 @@ module.exports = (dependencies) => {
         album: bestTrack.album?.name,
         imageUrl: bestTrack.album?.images?.[0]?.url,
       };
-      const playResult = await playSpotifyTrackOnSonos(trackUri, trackInfo);
+
+      // Use radio mode by default: plays track then auto-queues similar songs
+      const playResult = radio
+        ? await upnp.playSpotifyTrackWithRadio(trackUri, {
+            title: trackInfo.name,
+            artist: trackInfo.artist,
+            album: trackInfo.album,
+            albumArtUri: trackInfo.imageUrl,
+          })
+        : await playSpotifyTrackOnSonos(trackUri, trackInfo);
 
       return {
         success: playResult.success,
@@ -796,6 +806,9 @@ module.exports = (dependencies) => {
         const q = req.query.q || req.body?.q || '';
         const artist = req.query.artist || req.body?.artist || '';
         const track = req.query.track || req.body?.track || '';
+        // radio=false to disable auto-queue; defaults to true
+        const radioParam = req.query.radio ?? req.body?.radio;
+        const radio = radioParam === 'false' || radioParam === false ? false : true;
 
         // Need at least one of: q, artist, or track
         if (!q && !artist && !track) {
@@ -810,11 +823,11 @@ module.exports = (dependencies) => {
           });
         }
 
-        const logMsg = `Received search request: q="${q}", artist="${artist}", track="${track}"`;
+        const logMsg = `Received search request: q="${q}", artist="${artist}", track="${track}", radio=${radio}`;
         console.log(logMsg);
 
         try {
-          const result = await searchAndPlay(q, { artist, track });
+          const result = await searchAndPlay(q, { artist, track, radio });
           if (result.success) {
             return res.status(200).json({
               success: true,
