@@ -372,6 +372,138 @@ async function testConnection() {
   }
 }
 
+/**
+ * Clear the Sonos queue.
+ */
+async function clearQueue() {
+  console.log('[UPnP] Clearing queue');
+  const body = '<InstanceID>0</InstanceID>';
+  return soapRequest(
+    '/MediaRenderer/AVTransport/Control',
+    'RemoveAllTracksFromQueue',
+    'urn:schemas-upnp-org:service:AVTransport:1',
+    body,
+  );
+}
+
+/**
+ * Add a URI to the Sonos queue.
+ * @param {string} uri - The playback URI
+ * @param {string} metadata - DIDL-Lite metadata XML
+ * @param {number} desiredTrackNumber - Position in queue (0 = append)
+ */
+async function addURIToQueue(uri, metadata, desiredTrackNumber = 0) {
+  const body = `
+    <InstanceID>0</InstanceID>
+    <EnqueuedURI>${escapeXml(uri)}</EnqueuedURI>
+    <EnqueuedURIMetaData>${escapeXml(metadata)}</EnqueuedURIMetaData>
+    <DesiredFirstTrackNumberEnqueued>${desiredTrackNumber}</DesiredFirstTrackNumberEnqueued>
+    <EnqueueAsNext>0</EnqueueAsNext>
+  `;
+  return soapRequest(
+    '/MediaRenderer/AVTransport/Control',
+    'AddURIToQueue',
+    'urn:schemas-upnp-org:service:AVTransport:1',
+    body,
+  );
+}
+
+/**
+ * Seek to a track number in the queue (1-indexed).
+ */
+async function seekToTrack(trackNumber) {
+  console.log(`[UPnP] Seeking to track ${trackNumber}`);
+  const body = `
+    <InstanceID>0</InstanceID>
+    <Unit>TRACK_NR</Unit>
+    <Target>${trackNumber}</Target>
+  `;
+  return soapRequest(
+    '/MediaRenderer/AVTransport/Control',
+    'Seek',
+    'urn:schemas-upnp-org:service:AVTransport:1',
+    body,
+  );
+}
+
+/**
+ * Set Sonos to play from its internal queue.
+ */
+async function setQueueAsTransport() {
+  const sonosQueueUri = `x-rincon-queue:${SONOS_SPEAKER_IP.replace(/\./g, '')}#0`;
+  // Use a generic queue URI - Sonos accepts x-rincon-queue: to play from queue
+  const body = `
+    <InstanceID>0</InstanceID>
+    <CurrentURI>x-rincon-queue:RINCON_${SONOS_SPEAKER_IP.replace(/\./g, '')}01400#0</CurrentURI>
+    <CurrentURIMetaData></CurrentURIMetaData>
+  `;
+  return soapRequest(
+    '/MediaRenderer/AVTransport/Control',
+    'SetAVTransportURI',
+    'urn:schemas-upnp-org:service:AVTransport:1',
+    body,
+  );
+}
+
+/**
+ * Play a full album on Sonos by queuing all tracks.
+ * @param {Array} tracks - Array of { id, name, artists, album } from Spotify API
+ * @param {object} albumInfo - { name, artist, imageUrl } for display
+ * @param {number} volume - Optional volume level (0-100)
+ */
+async function playAlbum(tracks, albumInfo = {}, volume = null) {
+  try {
+    if (volume !== null) {
+      await setVolume(volume);
+    }
+
+    await stop();
+    await clearQueue();
+
+    console.log(`[UPnP] Queuing ${tracks.length} tracks for album: ${albumInfo.name || 'Unknown'}`);
+
+    for (const t of tracks) {
+      const trackId = t.id;
+      const uri = spotifyToSonosUri(`spotify:track:${trackId}`);
+      const artistName = t.artists.map((a) => a.name).join(', ');
+      const meta = buildSpotifyMetadata({
+        title: t.name,
+        artist: artistName,
+        album: albumInfo.name || '',
+        albumArtUri: albumInfo.imageUrl || '',
+        trackId,
+      });
+      await addURIToQueue(uri, meta);
+    }
+
+    // Tell Sonos to use the queue as the transport source, then play
+    // Build the RINCON ID from speaker IP (standard Sonos format)
+    const ipHex = SONOS_SPEAKER_IP.split('.').map((n) => parseInt(n, 10).toString(16).padStart(2, '0')).join('').toUpperCase();
+    const queueUri = `x-rincon-queue:RINCON_${ipHex}01400#0`;
+
+    const queueBody = `
+      <InstanceID>0</InstanceID>
+      <CurrentURI>${escapeXml(queueUri)}</CurrentURI>
+      <CurrentURIMetaData></CurrentURIMetaData>
+    `;
+    await soapRequest(
+      '/MediaRenderer/AVTransport/Control',
+      'SetAVTransportURI',
+      'urn:schemas-upnp-org:service:AVTransport:1',
+      queueBody,
+    );
+
+    await seekToTrack(1);
+    await play();
+
+    console.log(`[UPnP] Album playback started: ${albumInfo.name || 'Unknown'} (${tracks.length} tracks)`);
+    return { success: true };
+  } catch (err) {
+    console.error(`[UPnP] Error playing album: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   // Low-level functions
   soapRequest,
@@ -382,9 +514,15 @@ module.exports = {
   setVolume,
   getTransportInfo,
 
+  // Queue management
+  clearQueue,
+  addURIToQueue,
+  seekToTrack,
+
   // High-level functions
   playSpotifyTrack,
   playSpotifyTrackWithRadio,
+  playAlbum,
   testConnection,
 
   // Utilities

@@ -351,6 +351,69 @@ module.exports = (dependencies) => {
   }
 
   /**
+   * Search Spotify for an album and return its tracks.
+   * @param {string} query - Album name (and optionally artist)
+   * @param {string} artist - Optional artist name for disambiguation
+   */
+  async function searchSpotifyAlbum(query, artist = '') {
+    const searchQuery = artist ? `${query} ${artist}` : query;
+    console.log(`Searching Spotify for album: "${searchQuery}"`);
+
+    try {
+      const response = await spotifyApi.get('/search', {
+        params: {
+          q: searchQuery,
+          type: 'album',
+          limit: 5,
+          market: 'GB',
+        },
+      });
+
+      const albums = response.data.albums.items;
+      if (!albums || albums.length === 0) {
+        console.log('No albums found for query.');
+        return null;
+      }
+
+      // Pick best match: prefer exact artist match
+      let bestAlbum = albums[0];
+      if (artist) {
+        const artistLower = artist.toLowerCase();
+        const exact = albums.find((a) =>
+          a.artists.some((ar) => ar.name.toLowerCase().includes(artistLower)),
+        );
+        if (exact) bestAlbum = exact;
+      }
+
+      console.log(`Album matched: "${bestAlbum.name}" by ${bestAlbum.artists[0].name} [${bestAlbum.id}]`);
+
+      // Fetch album tracks
+      const tracksResponse = await spotifyApi.get(`/albums/${bestAlbum.id}/tracks`, {
+        params: { limit: 50, market: 'GB' },
+      });
+
+      return {
+        album: {
+          id: bestAlbum.id,
+          name: bestAlbum.name,
+          artist: bestAlbum.artists[0].name,
+          imageUrl: bestAlbum.images?.[0]?.url || '',
+          totalTracks: bestAlbum.total_tracks,
+        },
+        tracks: tracksResponse.data.items,
+      };
+    } catch (err) {
+      if (err.response && err.response.status === 401) {
+        console.log('Spotify token expired, refreshing...');
+        const refreshed = await refreshSpotifyToken();
+        if (refreshed) return searchSpotifyAlbum(query, artist);
+      }
+      console.error('Album search error:', err.response ? err.response.data : err.message);
+      throw err;
+    }
+  }
+
+  /**
    * Search Spotify for tracks matching a query.
    * Returns ranked results preferring exact matches and popular tracks.
    */
@@ -850,6 +913,48 @@ module.exports = (dependencies) => {
         }
       });
 
+      // Album search and play endpoint
+      // Usage: POST /album?q=black+holes+and+revelations&artist=muse
+      //    or: POST /album?q=black+holes+and+revelations+muse
+      app.post('/album', async (req, res) => {
+        const q = req.query.q || req.body?.q || '';
+        const artist = req.query.artist || req.body?.artist || '';
+
+        if (!q && !artist) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing search params. Provide ?q=album+name or ?q=album+name&artist=Artist',
+          });
+        }
+
+        console.log(`Album play request: q="${q}", artist="${artist}"`);
+
+        try {
+          const result = await searchSpotifyAlbum(q, artist);
+
+          if (!result) {
+            return res.status(404).json({ success: false, error: 'Album not found on Spotify' });
+          }
+
+          const { album, tracks } = result;
+          const playResult = await upnp.playAlbum(tracks, album);
+
+          if (playResult.success) {
+            return res.status(200).json({
+              success: true,
+              message: `Now playing album: ${album.name} by ${album.artist} (${tracks.length} tracks)`,
+              album,
+              trackCount: tracks.length,
+            });
+          }
+
+          return res.status(500).json({ success: false, error: playResult.error });
+        } catch (err) {
+          console.error('Album endpoint error:', err);
+          return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+        }
+      });
+
       // GET version of search for easy testing in browser
       app.get('/search', async (req, res) => {
         const { q, artist, track } = req.query;
@@ -985,6 +1090,7 @@ module.exports = (dependencies) => {
     setVolume,
     // Spotify search functions
     searchSpotify,
+    searchSpotifyAlbum,
     rankSearchResults,
     playSpotifyTrackOnSonos,
     searchAndPlay,
