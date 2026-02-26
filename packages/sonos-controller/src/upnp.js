@@ -243,6 +243,45 @@ async function getTransportInfo() {
 }
 
 /**
+ * Get current media info (current URI, metadata, etc.).
+ */
+async function getMediaInfo() {
+  console.log('[UPnP] Getting media info');
+
+  const body = '<InstanceID>0</InstanceID>';
+
+  const result = await soapRequest(
+    '/MediaRenderer/AVTransport/Control',
+    'GetMediaInfo',
+    'urn:schemas-upnp-org:service:AVTransport:1',
+    body,
+  );
+  
+  // Parse the CurrentURI from response
+  const uriMatch = result.data.match(/<CurrentURI>([^<]*)<\/CurrentURI>/);
+  const currentUri = uriMatch ? uriMatch[1] : '';
+  
+  return { ...result, currentUri };
+}
+
+/**
+ * Check if speaker is currently on line-in.
+ * Returns { isLineIn: boolean, source: string }
+ */
+async function checkLineIn() {
+  try {
+    const mediaInfo = await getMediaInfo();
+    const uri = mediaInfo.currentUri.toLowerCase();
+    // Line-in URIs contain "x-rincon-stream" or "x-sonos-htastream" (for soundbar line-in)
+    const isLineIn = uri.includes('x-rincon-stream') || uri.includes('x-sonos-htastream') || uri.includes('spdif');
+    return { isLineIn, source: mediaInfo.currentUri };
+  } catch (err) {
+    console.error('[UPnP] Error checking line-in status:', err.message);
+    return { isLineIn: false, source: 'unknown' };
+  }
+}
+
+/**
  * Play a Spotify track on Sonos via UPnP.
  * High-level function that combines setAVTransportURI + play.
  *
@@ -305,12 +344,18 @@ function spotifyToSonosRadioUri(spotifyUri) {
  */
 async function playSpotifyTrackWithRadio(spotifyUri, trackInfo = {}, volume = null) {
   try {
+    // Check if on line-in first
+    const lineInStatus = await checkLineIn();
+    if (lineInStatus.isLineIn) {
+      console.log('[UPnP] Speaker is on line-in, will switch to Spotify...');
+    }
+
     // Set volume if specified
     if (volume !== null) {
       await setVolume(volume);
     }
 
-    // Load and play the requested track first
+    // Load and play the requested track first (this will switch off line-in)
     await setAVTransportURI(spotifyUri, trackInfo);
     await play();
 
@@ -513,6 +558,8 @@ module.exports = {
   pause,
   setVolume,
   getTransportInfo,
+  getMediaInfo,
+  checkLineIn,
 
   // Queue management
   clearQueue,
