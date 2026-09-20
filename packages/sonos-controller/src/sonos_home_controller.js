@@ -830,14 +830,23 @@ module.exports = (dependencies) => {
           if (sonosTokens) open(spotifyAuthUrl);
         }
       });
-    } else {
-      console.log('Sonos and Spotify tokens found. Starting dynamic webhook server.');
+    }
+
+    // The webhook server needs Sonos credentials only. Gating it on Spotify too meant
+    // that once refreshSpotifyToken() deleted .spotify_tokens.json, the next restart
+    // silently dropped port 5001 and every Sonos webhook with it.
+    if (sonosTokens) {
+      console.log('Sonos tokens found. Starting dynamic webhook server.');
 
       const sonosExpiresIn = (sonosTokens.expires_in || 3600) * 1000;
       setInterval(refreshSonosToken, sonosExpiresIn * 0.9);
 
-      const spotifyExpiresIn = (spotifyTokens.expires_in || 3600) * 1000;
-      setInterval(refreshSpotifyToken, spotifyExpiresIn * 0.9);
+      if (spotifyTokens) {
+        const spotifyExpiresIn = (spotifyTokens.expires_in || 3600) * 1000;
+        setInterval(refreshSpotifyToken, spotifyExpiresIn * 0.9);
+      } else {
+        console.warn('No Spotify tokens: Spotify pause disabled, Sonos webhooks unaffected.');
+      }
 
       app.post('/play/:favoriteName', (req, res) => {
         const { favoriteName } = req.params;
