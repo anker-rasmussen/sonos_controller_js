@@ -684,8 +684,15 @@ module.exports = (dependencies) => {
       }
       const { groupId } = group;
 
+      // Best-effort: if the group is idle the API returns ERROR_PLAYBACK_NO_CONTENT,
+      // which must not abort the switch to Line-In.
       console.log('Pausing current playback...');
-      await sonosApi.post(`/groups/${groupId}/playback/pause`);
+      try {
+        await sonosApi.post(`/groups/${groupId}/playback/pause`);
+      } catch (err) {
+        const errorData = err.response ? err.response.data : err.message;
+        console.log('Nothing to pause, continuing:', JSON.stringify(errorData));
+      }
 
       console.log('Sending command to switch to Line-In...');
       await sonosApi.post(`/groups/${groupId}/playback/lineIn`);
